@@ -1,20 +1,24 @@
 import { useState, useEffect, type FormEvent } from 'react';
 import './App.css';
 
-// ============================================================================
-// НАСТРОЙКИ БЭКЕНДА
-// ============================================================================
-const API_BASE_URL = 'https://inai-col2.fishrungames.com';
+const API_BASE_URL = 'https://inai-col3.fishrungames.com';
 
 const ENDPOINTS = {
-  register: `${API_BASE_URL}/api/register/`,
   login: `${API_BASE_URL}/api/login/`,
   logout: `${API_BASE_URL}/api/logout/`,
+  register: `${API_BASE_URL}/api/register/`,
   profile: `${API_BASE_URL}/api/profile/`,
+  specializations: `${API_BASE_URL}/api/specializations/`,
+  refreshToken: `${API_BASE_URL}/api/token/refresh/`,
 };
 
-interface UserProfile {
-  id?: number | string;
+interface SpecOption {
+  value: string;
+  label: string;
+}
+
+interface MusicianData {
+  id?: number;
   username: string;
   email?: string;
   profile?: {
@@ -26,248 +30,362 @@ interface UserProfile {
   };
 }
 
-type AuthTab = 'login' | 'register';
+type TabMode = 'login' | 'register';
 
 function App() {
-  const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [loadingText, setLoadingText] = useState<string>('Загрузка...');
-
-  const [token, setToken] = useState<string | null>(localStorage.getItem('auth_token'));
-  const [activeTab, setActiveTab] = useState<AuthTab>('login');
+  const [loading, setLoading] = useState<boolean>(false);
+  const [isLogged, setIsLogged] = useState<boolean>(
+    Boolean(localStorage.getItem('jwt_access'))
+  );
+  const [tab, setTab] = useState<TabMode>('login');
 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [okMsg, setOkMsg] = useState<string | null>(null);
 
-  const [username, setUsername] = useState<string>('');
-  const [password, setPassword] = useState<string>('');
-  const [email, setEmail] = useState<string>('');
+  // Форма входа/регистрации
+  const [userField, setUserField] = useState<string>('');
+  const [passField, setPassField] = useState<string>('');
+  const [emailField, setEmailField] = useState<string>('');
 
-  const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [isEditing, setIsEditing] = useState<boolean>(false);
-  const [editUsername, setEditUsername] = useState<string>('');
-  const [editEmail, setEditEmail] = useState<string>('');
-  const [editFirstName, setEditFirstName] = useState<string>('');
-  const [editBio, setEditBio] = useState<string>('');
+  // Профиль
+  const [musician, setMusician] = useState<MusicianData | null>(null);
+  const [specList, setSpecList] = useState<SpecOption[]>([
+    { value: 'vocal', label: 'Вокал' },
+    { value: 'guitar', label: 'Гитара' },
+    { value: 'bass', label: 'Бас-гитара' },
+    { value: 'drums', label: 'Ударные' },
+    { value: 'keys', label: 'Клавишные' },
+    { value: 'other', label: 'Другое' },
+  ]);
 
-  const startLoading = (text: string) => {
-    setErrorMsg(null);
-    setSuccessMsg(null);
-    setLoadingText(text);
-    setIsLoading(true);
-  };
+  const [editActive, setEditActive] = useState<boolean>(false);
+  const [firstName, setFirstName] = useState<string>('');
+  const [specValue, setSpecValue] = useState<string>('other');
+  const [bioValue, setBioValue] = useState<string>('');
+  const [feeValue, setFeeValue] = useState<string>('0.00');
 
   useEffect(() => {
-    if (token) {
-      fetchProfile();
+    fetchSpecializations();
+    if (isLogged) {
+      loadProfileData();
     }
-  }, [token]);
+  }, [isLogged]);
 
-  // 1. ПОЛУЧЕНИЕ ПРОФИЛЯ (GET) с передачей credentials для кук бэкенда
-  const fetchProfile = async () => {
-    startLoading('Загружаем профиль музыканта...');
+  const fetchSpecializations = async () => {
     try {
-      const response = await fetch(ENDPOINTS.profile, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include', // Важно для Django сессий
-      });
-
-      if (!response.ok) {
-        throw new Error(`Ошибка загрузки профиля (${response.status})`);
+      const res = await fetch(ENDPOINTS.specializations);
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data) && data.length > 0) {
+          setSpecList(
+            data.map((item: Record<string, string>) => ({
+              value: item.value || item.key || item.code || 'other',
+              label: item.label || item.name || item.display || 'Другое',
+            }))
+          );
+        }
       }
-
-      const data: UserProfile = await response.json();
-      setProfile(data);
-      setEditUsername(data.username || '');
-      setEditEmail(data.email || '');
-      setEditFirstName(data.profile?.first_name || '');
-      setEditBio(data.profile?.bio || '');
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Не удалось загрузить профиль';
-      setErrorMsg(message);
-      localStorage.removeItem('auth_token');
-      setToken(null);
-    } finally {
-      setIsLoading(false);
+    } catch {
+      // Использовать дефолтный список
     }
   };
 
-  // 2. РЕГИСТРАЦИЯ (POST)
+  const authFetch = async (url: string, options: RequestInit = {}): Promise<Response> => {
+    let access = localStorage.getItem('jwt_access');
+    const refresh = localStorage.getItem('jwt_refresh');
+
+    const headers = new Headers(options.headers || {});
+    if (access) {
+      headers.set('Authorization', `Bearer ${access}`);
+    }
+    if (!headers.has('Content-Type')) {
+      headers.set('Content-Type', 'application/json');
+    }
+
+    let res = await fetch(url, { ...options, headers });
+
+    if (res.status === 401 && refresh) {
+      try {
+        const refreshRes = await fetch(ENDPOINTS.refreshToken, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refresh }),
+        });
+
+        if (refreshRes.ok) {
+          const tData = await refreshRes.json();
+          access = tData.access;
+          localStorage.setItem('jwt_access', tData.access);
+          if (tData.refresh) {
+            localStorage.setItem('jwt_refresh', tData.refresh);
+          }
+          headers.set('Authorization', `Bearer ${access}`);
+          res = await fetch(url, { ...options, headers });
+        } else {
+          clientLogout();
+        }
+      } catch {
+        clientLogout();
+      }
+    }
+
+    return res;
+  };
+
+  const syncProfile = (data: MusicianData) => {
+    setMusician(data);
+    setFirstName(data.profile?.first_name || '');
+    setSpecValue(data.profile?.specialization || 'other');
+    setBioValue(data.profile?.bio || '');
+    setFeeValue(String(data.profile?.fee ?? '0.00'));
+  };
+
+  const loadProfileData = async () => {
+    setLoading(true);
+    try {
+      const res = await authFetch(ENDPOINTS.profile, { method: 'GET' });
+      if (!res.ok) {
+        throw new Error(`Ошибка загрузки профиля (${res.status})`);
+      }
+      const data: MusicianData = await res.json();
+      syncProfile(data);
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'Ошибка профиля');
+      clientLogout();
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Парсинг точного текста ошибки от сервера
+  const extractError = (data: Record<string, unknown>, fallback: string): string => {
+    if (typeof data.detail === 'string') return data.detail;
+    if (Array.isArray(data.non_field_errors)) return String(data.non_field_errors[0]);
+    if (Array.isArray(data.username)) return `Логин: ${data.username[0]}`;
+    if (Array.isArray(data.password)) return `Пароль: ${data.password[0]}`;
+    if (Array.isArray(data.email)) return `Email: ${data.email[0]}`;
+    return fallback;
+  };
+
+  // Регистрация
   const handleRegister = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    startLoading('Регистрация нового музыканта...');
+    setErrorMsg(null);
+    setOkMsg(null);
+    setLoading(true);
 
     try {
-      const response = await fetch(ENDPOINTS.register, {
+      const res = await fetch(ENDPOINTS.register, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          username,
-          email,
-          password,
+          username: userField.trim(),
+          email: emailField.trim(),
+          password: passField,
         }),
       });
 
-      const data = await response.json().catch(() => ({}));
+      const data = await res.json().catch(() => ({}));
 
-      if (!response.ok) {
-        throw new Error(data.detail || data.username?.[0] || 'Ошибка регистрации');
+      if (!res.ok) {
+        throw new Error(extractError(data, 'Не удалось зарегистрироваться'));
       }
 
-      setSuccessMsg('Регистрация успешна! Теперь войдите в систему.');
-      setActiveTab('login');
-      setPassword('');
+      setOkMsg(`Пользователь ${userField} успешно создан! Теперь войдите.`);
+      setTab('login');
+      setPassField('');
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Ошибка при регистрации';
-      setErrorMsg(message);
+      setErrorMsg(err instanceof Error ? err.message : 'Сбой регистрации');
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
   };
 
-  // 3. ВХОД В СИСТЕМУ (POST) с credentials: 'include'
+  // Вход
   const handleLogin = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    startLoading('Вход в систему...');
+    setErrorMsg(null);
+    setOkMsg(null);
+    setLoading(true);
 
     try {
-      const response = await fetch(ENDPOINTS.login, {
+      const res = await fetch(ENDPOINTS.login, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include', // Принимаем куки сессии от бэкенда
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          username,
-          password,
+          username: userField.trim(),
+          password: passField,
         }),
       });
 
-      const data = await response.json().catch(() => ({}));
+      const data = await res.json().catch(() => ({}));
 
-      if (!response.ok) {
-        throw new Error(data.detail || data.non_field_errors?.[0] || 'Неверный логин или пароль');
+      if (!res.ok) {
+        throw new Error(extractError(data, 'Неверный логин или пароль'));
       }
 
-      localStorage.setItem('auth_token', 'active_session');
-      setToken('active_session');
-      
-      setProfile(data);
-      setEditUsername(data.username || '');
-      setEditEmail(data.email || '');
-      setEditFirstName(data.profile?.first_name || '');
-      setEditBio(data.profile?.bio || '');
+      const access = data.access || data.token;
+      if (!access) {
+        throw new Error('Сервер не вернул access токен');
+      }
 
-      setPassword('');
-      setSuccessMsg('Успешный вход в систему!');
+      localStorage.setItem('jwt_access', access);
+      if (data.refresh) {
+        localStorage.setItem('jwt_refresh', data.refresh);
+      }
+      localStorage.setItem('jwt_user', userField.trim());
+
+      setIsLogged(true);
+      setPassField('');
+      setOkMsg('Вход выполнен успешно!');
+
+      const pRes = await fetch(ENDPOINTS.profile, {
+        headers: {
+          'Authorization': `Bearer ${access}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (pRes.ok) {
+        const pData = await pRes.json();
+        syncProfile(pData);
+      }
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Ошибка входа';
-      setErrorMsg(message);
+      setErrorMsg(err instanceof Error ? err.message : 'Ошибка авторизации');
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
   };
 
-  // 4. ОБНОВЛЕНИЕ ПРОФИЛЯ (PATCH)
-  const handleUpdateProfile = async (e: FormEvent<HTMLFormElement>) => {
+  // Сохранение профиля
+  const handleProfileUpdate = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!token) return;
-
-    startLoading('Сохранение профиля...');
+    setErrorMsg(null);
+    setOkMsg(null);
+    setLoading(true);
 
     try {
-      const response = await fetch(ENDPOINTS.profile, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
+      const payload = {
+        first_name: firstName,
+        specialization: specValue,
+        bio: bioValue,
+        fee: feeValue,
+        profile: {
+          first_name: firstName,
+          specialization: specValue,
+          bio: bioValue,
+          fee: feeValue,
         },
-        credentials: 'include',
-        body: JSON.stringify({
-          username: editUsername,
-          email: editEmail,
-          profile: {
-            first_name: editFirstName,
-            bio: editBio,
-          },
-        }),
+      };
+
+      const res = await authFetch(ENDPOINTS.profile, {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
       });
 
-      const data = await response.json().catch(() => ({}));
+      const data = await res.json().catch(() => ({}));
 
-      if (!response.ok) {
-        throw new Error(data.detail || 'Ошибка обновления профиля');
+      if (!res.ok) {
+        throw new Error(extractError(data, 'Ошибка сохранения анкеты'));
       }
 
-      setProfile(data);
-      setIsEditing(false);
-      setSuccessMsg('Профиль успешно обновлён!');
+      if (data.profile) {
+        syncProfile(data);
+      } else {
+        syncProfile({
+          ...musician,
+          username: musician?.username || userField || localStorage.getItem('jwt_user') || '',
+          profile: {
+            first_name: data.first_name ?? firstName,
+            specialization: data.specialization ?? specValue,
+            specialization_display:
+              data.specialization_display ??
+              specList.find((s) => s.value === specValue)?.label ??
+              specValue,
+            bio: data.bio ?? bioValue,
+            fee: data.fee ?? feeValue,
+          },
+        });
+      }
+
+      setEditActive(false);
+      setOkMsg('Анкета участника успешно сохранена!');
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Не удалось обновить профиль';
-      setErrorMsg(message);
+      setErrorMsg(err instanceof Error ? err.message : 'Ошибка обновления');
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
   };
 
-  // 5. ВЫХОД (POST)
   const handleLogout = async () => {
-    startLoading('Выход из аккаунта...');
+    setLoading(true);
+    const refresh = localStorage.getItem('jwt_refresh');
+    const access = localStorage.getItem('jwt_access');
+
     try {
-      await fetch(ENDPOINTS.logout, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-      }).catch(() => {});
+      if (refresh) {
+        await fetch(ENDPOINTS.logout, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(access ? { 'Authorization': `Bearer ${access}` } : {}),
+          },
+          body: JSON.stringify({ refresh }),
+        });
+      }
+    } catch {
+      // Игнорируем сетевые сбои при логауте
     } finally {
-      localStorage.removeItem('auth_token');
-      setToken(null);
-      setProfile(null);
-      setIsEditing(false);
-      setIsLoading(false);
-      setSuccessMsg('Вы вышли из системы.');
+      clientLogout();
+      setLoading(false);
+      setOkMsg('Вы вышли из учетной записи.');
     }
+  };
+
+  const clientLogout = () => {
+    localStorage.removeItem('jwt_access');
+    localStorage.removeItem('jwt_refresh');
+    localStorage.removeItem('jwt_user');
+    setIsLogged(false);
+    setMusician(null);
+    setEditActive(false);
   };
 
   return (
-    <div>
-      {isLoading && (
-        <div className="loading-overlay">
-          <div className="loading-box">
-            <div className="spinner"></div>
-            <div className="loading-text">{loadingText}</div>
-          </div>
-        </div>
-      )}
+    <div translate="no" className="notranslate">
+      <div className="top-bar">
+        AMBER BEAT • JWT INAI COL3 SECURED • WORLD TOUR 2026
+      </div>
 
-      <header className="navbar">
-        <div className="logo">🎸 MIDNIGHT ECHO</div>
-        <div className="nav-actions">
-          {token ? (
+      <header className="nav-shell">
+        <div className="brand-badge">
+          <span>🎸 AMBER BEAT</span>
+          <span className="badge-pill">JWT System</span>
+        </div>
+
+        <div className="auth-nav-actions">
+          {isLogged ? (
             <>
-              <span className="user-badge">
-                👤 {profile?.username || username || 'Музыкант'}
+              <span style={{ fontSize: '0.9rem', color: '#f59e0b', fontWeight: 700 }}>
+                {musician?.username || localStorage.getItem('jwt_user')}
               </span>
-              <button className="btn btn-danger" onClick={handleLogout} disabled={isLoading}>
+              <button className="nav-btn nav-btn-danger" onClick={handleLogout}>
                 Выйти
               </button>
             </>
           ) : (
             <>
               <button
-                className={`btn ${activeTab === 'login' ? 'btn-primary' : 'btn-outline'}`}
-                onClick={() => { setActiveTab('login'); setErrorMsg(null); }}
+                type="button"
+                className={`nav-btn ${tab === 'login' ? 'nav-btn-active' : ''}`}
+                onClick={() => { setTab('login'); setErrorMsg(null); }}
               >
                 Вход
               </button>
               <button
-                className={`btn ${activeTab === 'register' ? 'btn-primary' : 'btn-outline'}`}
-                onClick={() => { setActiveTab('register'); setErrorMsg(null); }}
+                type="button"
+                className={`nav-btn ${tab === 'register' ? 'nav-btn-active' : ''}`}
+                onClick={() => { setTab('register'); setErrorMsg(null); }}
               >
                 Регистрация
               </button>
@@ -276,206 +394,267 @@ function App() {
         </div>
       </header>
 
-      <main className="container">
-        <section className="hero">
-          <h1>MIDNIGHT ECHO</h1>
-          <p>
-            Официальный сайт синт-рок группы. Мировой тур, альбомы и закрытый кабинет
-            для зарегистрированных участников.
-          </p>
-        </section>
+      <main className="page-grid">
+        {/* ЛЕВАЯ КОЛОНКА */}
+        <aside className="card-frame">
+          {errorMsg && <div className="status-banner status-banner-err">{errorMsg}</div>}
+          {okMsg && <div className="status-banner status-banner-ok">{okMsg}</div>}
 
-        <div className="grid">
-          <div className="card">
-            <h2>🔥 Ближайшие концерты (Tour 2026)</h2>
-            <div className="tour-item">
-              <span className="tour-date">15 НОЯ</span>
-              <span className="tour-city">Бишкек — Bishkek Arena</span>
-              <span className="btn btn-outline">Sold Out</span>
-            </div>
-            <div className="tour-item">
-              <span className="tour-date">22 НОЯ</span>
-              <span className="tour-city">Алматы — Дворец Республики</span>
-              <span className="btn btn-outline">Билеты</span>
-            </div>
-            <div className="tour-item">
-              <span className="tour-date">05 ДЕК</span>
-              <span className="tour-city">Берлин — Columbiahalle</span>
-              <span className="btn btn-outline">Билеты</span>
-            </div>
-            <div className="tour-item">
-              <span className="tour-date">18 ДЕК</span>
-              <span className="tour-city">Токио — Zepp DiverCity</span>
-              <span className="btn btn-outline">VIP</span>
-            </div>
-
-            <h2 style={{ marginTop: '28px' }}>💿 Новый альбом «Neon Horizon»</h2>
-            <p style={{ color: '#b0b0cc', fontSize: '0.95rem' }}>
-              1. Cybernetic Heart (03:42) <br />
-              2. Shadows of Osh & Bishkek Nights (04:15) <br />
-              3. Overdrive Protocol (03:58) <br />
-              4. Echoes in the Rain (05:10)
-            </p>
-          </div>
-
-          <div className="card">
-            {errorMsg && <div className="alert alert-error">{errorMsg}</div>}
-            {successMsg && <div className="alert alert-success">{successMsg}</div>}
-
-            {!token ? (
-              activeTab === 'login' ? (
-                <form onSubmit={handleLogin}>
-                  <h2>🔐 Вход в систему</h2>
-                  <div className="form-group">
-                    <label>Логин (Username)</label>
-                    <input
-                      type="text"
-                      placeholder="Введите логин"
-                      value={username}
-                      onChange={(e) => setUsername(e.target.value)}
-                      required
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>Пароль</label>
-                    <input
-                      type="password"
-                      placeholder="Введите пароль"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      required
-                    />
-                  </div>
-                  <button type="submit" className="btn btn-primary" style={{ width: '100%' }}>
-                    Войти в аккаунт
-                  </button>
-                </form>
-              ) : (
-                <form onSubmit={handleRegister}>
-                  <h2>✨ Регистрация музыканта</h2>
-                  <div className="form-group">
-                    <label>Логин (Username)</label>
-                    <input
-                      type="text"
-                      placeholder="Придумайте логин"
-                      value={username}
-                      onChange={(e) => setUsername(e.target.value)}
-                      required
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>Email</label>
-                    <input
-                      type="email"
-                      placeholder="you@example.com"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      required
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>Пароль</label>
-                    <input
-                      type="password"
-                      placeholder="Введите пароль"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      required
-                    />
-                  </div>
-                  <button type="submit" className="btn btn-primary" style={{ width: '100%' }}>
-                    Зарегистрироваться
-                  </button>
-                </form>
-              )
+          {!isLogged ? (
+            tab === 'login' ? (
+              <form onSubmit={handleLogin}>
+                <div className="card-head">
+                  <span>Вход в систему</span>
+                </div>
+                <div className="form-row">
+                  <label>Логин (Username)</label>
+                  <input
+                    type="text"
+                    placeholder="Введите логин"
+                    value={userField}
+                    onChange={(e) => setUserField(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="form-row">
+                  <label>Пароль</label>
+                  <input
+                    type="password"
+                    placeholder="Введите пароль"
+                    value={passField}
+                    onChange={(e) => setPassField(e.target.value)}
+                    required
+                  />
+                </div>
+                <button type="submit" className="submit-btn" disabled={loading}>
+                  {loading ? 'Проверка...' : 'Войти'}
+                </button>
+              </form>
             ) : (
-              <div>
-                <h2>👤 Профиль музыканта</h2>
+              <form onSubmit={handleRegister}>
+                <div className="card-head">
+                  <span>Регистрация участника</span>
+                </div>
+                <div className="form-row">
+                  <label>Логин (от 3-4 символов)</label>
+                  <input
+                    type="text"
+                    placeholder="Придумайте логин"
+                    value={userField}
+                    onChange={(e) => setUserField(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="form-row">
+                  <label>Email</label>
+                  <input
+                    type="email"
+                    placeholder="band@example.com"
+                    value={emailField}
+                    onChange={(e) => setEmailField(e.target.value)}
+                  />
+                </div>
+                <div className="form-row">
+                  <label>Пароль</label>
+                  <input
+                    type="password"
+                    placeholder="Не менее 6 символов"
+                    value={passField}
+                    onChange={(e) => setPassField(e.target.value)}
+                    required
+                  />
+                </div>
+                <button type="submit" className="submit-btn" disabled={loading}>
+                  {loading ? 'Создание...' : 'Зарегистрироваться'}
+                </button>
+              </form>
+            )
+          ) : (
+            <div>
+              <div className="card-head">
+                <span>Профиль музыканта</span>
+                <button className="nav-btn" onClick={loadProfileData} title="Обновить">
+                  ↻
+                </button>
+              </div>
 
-                {!isEditing ? (
-                  <div className="profile-info">
-                    <p>
-                      <strong>Логин:</strong> {profile?.username || 'Не указан'}
-                    </p>
-                    <p>
-                      <strong>Email:</strong> {profile?.email || 'Не указан'}
-                    </p>
-                    <p>
-                      <strong>Имя:</strong> {profile?.profile?.first_name || 'Не указано'}
-                    </p>
-                    <p>
-                      <strong>Специализация:</strong> {profile?.profile?.specialization_display || 'Другое'}
-                    </p>
-                    <p>
-                      <strong>О себе:</strong> {profile?.profile?.bio || 'Нет описания.'}
-                    </p>
-
-                    <div className="profile-actions">
-                      <button className="btn btn-primary" onClick={() => setIsEditing(true)}>
-                        ✏️ Редактировать профиль
-                      </button>
-                      <button
-                        className="btn btn-outline"
-                        onClick={() => fetchProfile()}
-                      >
-                        🔄 Обновить
-                      </button>
+              {!editActive ? (
+                <div>
+                  <div className="profile-meta-card">
+                    <div className="meta-item">
+                      <span className="meta-label">ID участника:</span>
+                      <span className="meta-val">#{musician?.id ?? '—'}</span>
+                    </div>
+                    <div className="meta-item">
+                      <span className="meta-label">Логин:</span>
+                      <span className="meta-val">{musician?.username || localStorage.getItem('jwt_user')}</span>
+                    </div>
+                    <div className="meta-item">
+                      <span className="meta-label">Имя:</span>
+                      <span className="meta-val">{musician?.profile?.first_name || 'Не заполнено'}</span>
+                    </div>
+                    <div className="meta-item">
+                      <span className="meta-label">Роль в группе:</span>
+                      <span className="meta-val">
+                        {musician?.profile?.specialization_display ||
+                          musician?.profile?.specialization ||
+                          'Другое'}
+                      </span>
+                    </div>
+                    <div className="meta-item">
+                      <span className="meta-label">Ставка за сет:</span>
+                      <span className="meta-val">${musician?.profile?.fee ?? '0.00'}</span>
+                    </div>
+                    <div className="meta-bio">
+                      <strong>О себе:</strong>{' '}
+                      {musician?.profile?.bio || 'Данные пока не заполнены.'}
                     </div>
                   </div>
-                ) : (
-                  <form onSubmit={handleUpdateProfile}>
-                    <div className="form-group">
-                      <label>Логин (Username)</label>
-                      <input
-                        type="text"
-                        value={editUsername}
-                        onChange={(e) => setEditUsername(e.target.value)}
-                        required
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label>Email</label>
-                      <input
-                        type="email"
-                        value={editEmail}
-                        onChange={(e) => setEditEmail(e.target.value)}
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label>Имя</label>
-                      <input
-                        type="text"
-                        value={editFirstName}
-                        onChange={(e) => setEditFirstName(e.target.value)}
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label>О себе / Статус</label>
-                      <textarea
-                        rows={3}
-                        value={editBio}
-                        onChange={(e) => setEditBio(e.target.value)}
-                      />
-                    </div>
 
-                    <div className="profile-actions">
-                      <button type="submit" className="btn btn-primary">
-                        💾 Сохранить
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-outline"
-                        onClick={() => setIsEditing(false)}
-                      >
-                        Отмена
-                      </button>
-                    </div>
-                  </form>
-                )}
-              </div>
-            )}
+                  <button
+                    className="submit-btn"
+                    onClick={() => setEditActive(true)}
+                  >
+                    ✏️ Редактировать профиль
+                  </button>
+                </div>
+              ) : (
+                <form onSubmit={handleProfileUpdate}>
+                  <div className="form-row">
+                    <label>Имя</label>
+                    <input
+                      type="text"
+                      value={firstName}
+                      onChange={(e) => setFirstName(e.target.value)}
+                      placeholder="Ваше имя"
+                    />
+                  </div>
+
+                  <div className="form-row">
+                    <label>Специализация</label>
+                    <select
+                      value={specValue}
+                      onChange={(e) => setSpecValue(e.target.value)}
+                    >
+                      {specList.map((s) => (
+                        <option key={s.value} value={s.value} style={{ background: '#08090d', color: '#fff' }}>
+                          {s.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="form-row">
+                    <label>Гонорар ($)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={feeValue}
+                      onChange={(e) => setFeeValue(e.target.value)}
+                    />
+                  </div>
+
+                  <div className="form-row">
+                    <label>Биография / О себе</label>
+                    <textarea
+                      rows={3}
+                      value={bioValue}
+                      onChange={(e) => setBioValue(e.target.value)}
+                      placeholder="Опыт, инструменты..."
+                    />
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '10px' }}>
+                    <button type="submit" className="submit-btn" style={{ flex: 1 }}>
+                      Сохранить
+                    </button>
+                    <button
+                      type="button"
+                      className="nav-btn"
+                      onClick={() => setEditActive(false)}
+                      style={{ padding: '12px' }}
+                    >
+                      Отмена
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
+          )}
+        </aside>
+
+        {/* ПРАВАЯ КОЛОНКА */}
+        <section>
+          <div className="promo-banner">
+            <h1>AMBER BEAT COLLECTIVE</h1>
+            <p>Официальный портал группы • Интеграция JWT</p>
           </div>
-        </div>
+
+          <div className="card-frame" style={{ marginBottom: '24px' }}>
+            <div className="card-head">
+              <span>Дискография и релизы</span>
+            </div>
+            <div className="album-grid">
+              <div className="album-item">
+                <span className="album-tag">LP • 2026</span>
+                <h3>Amber Horizon</h3>
+                <p>Аналоговый инди-рок, сведенный в студии Бишкека.</p>
+              </div>
+              <div className="album-item">
+                <span className="album-tag">EP • 2025</span>
+                <h3>Highland Drive</h3>
+                <p>Акустические треки, записанные в ущельях Тянь-Шаня.</p>
+              </div>
+              <div className="album-item">
+                <span className="album-tag">LIVE • 2024</span>
+                <h3>Zepp Tokyo Riot</h3>
+                <p>Живой концерт перед 10 000 слушателей.</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="card-frame">
+            <div className="card-head">
+              <span>График тура</span>
+            </div>
+            <table className="concert-table">
+              <thead>
+                <tr>
+                  <th>Дата</th>
+                  <th>Локация</th>
+                  <th>Арена</th>
+                  <th>Статус</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>14 НОЯ</td>
+                  <td>Бишкек, KG</td>
+                  <td>Bishkek Arena</td>
+                  <td><span style={{ color: '#f59e0b', fontWeight: 700 }}>Билеты в кассах</span></td>
+                </tr>
+                <tr>
+                  <td>20 НОЯ</td>
+                  <td>Ош, KG</td>
+                  <td>Central Stadium</td>
+                  <td><span style={{ color: '#f59e0b', fontWeight: 700 }}>Мало билетов</span></td>
+                </tr>
+                <tr>
+                  <td>28 НОЯ</td>
+                  <td>Алматы, KZ</td>
+                  <td>Halyk Arena</td>
+                  <td><span style={{ color: '#22c55e', fontWeight: 700 }}>В продаже</span></td>
+                </tr>
+                <tr>
+                  <td>09 ДЕК</td>
+                  <td>Берлин, DE</td>
+                  <td>Verti Music Hall</td>
+                  <td><span style={{ color: '#ef4444', fontWeight: 700 }}>Sold Out</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
       </main>
     </div>
   );
