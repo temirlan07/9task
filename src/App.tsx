@@ -42,12 +42,12 @@ function App() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [okMsg, setOkMsg] = useState<string | null>(null);
 
-  // Форма входа/регистрации
+  // Поля авторизации
   const [userField, setUserField] = useState<string>('');
   const [passField, setPassField] = useState<string>('');
   const [emailField, setEmailField] = useState<string>('');
 
-  // Профиль
+  // Данные профиля
   const [musician, setMusician] = useState<MusicianData | null>(null);
   const [specList, setSpecList] = useState<SpecOption[]>([
     { value: 'vocal', label: 'Вокал' },
@@ -86,7 +86,7 @@ function App() {
         }
       }
     } catch {
-      // Использовать дефолтный список
+      // Использовать заготовленный список
     }
   };
 
@@ -157,8 +157,7 @@ function App() {
     }
   };
 
-  // Парсинг точного текста ошибки от сервера
-  const extractError = (data: Record<string, unknown>, fallback: string): string => {
+  const parseServerErrors = (data: Record<string, unknown>, fallback: string): string => {
     if (typeof data.detail === 'string') return data.detail;
     if (Array.isArray(data.non_field_errors)) return String(data.non_field_errors[0]);
     if (Array.isArray(data.username)) return `Логин: ${data.username[0]}`;
@@ -167,7 +166,6 @@ function App() {
     return fallback;
   };
 
-  // Регистрация
   const handleRegister = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setErrorMsg(null);
@@ -188,10 +186,10 @@ function App() {
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        throw new Error(extractError(data, 'Не удалось зарегистрироваться'));
+        throw new Error(parseServerErrors(data, 'Не удалось зарегистрироваться'));
       }
 
-      setOkMsg(`Пользователь ${userField} успешно создан! Теперь войдите.`);
+      setOkMsg(`Участник ${userField.trim()} успешно создан! Авторизуйтесь.`);
       setTab('login');
       setPassField('');
     } catch (err) {
@@ -201,7 +199,6 @@ function App() {
     }
   };
 
-  // Вход
   const handleLogin = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setErrorMsg(null);
@@ -221,7 +218,7 @@ function App() {
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        throw new Error(extractError(data, 'Неверный логин или пароль'));
+        throw new Error(parseServerErrors(data, 'Неверный логин или пароль'));
       }
 
       const access = data.access || data.token;
@@ -237,7 +234,7 @@ function App() {
 
       setIsLogged(true);
       setPassField('');
-      setOkMsg('Вход выполнен успешно!');
+      setOkMsg('Вход успешно выполнен!');
 
       const pRes = await fetch(ENDPOINTS.profile, {
         headers: {
@@ -257,7 +254,6 @@ function App() {
     }
   };
 
-  // Сохранение профиля
   const handleProfileUpdate = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setErrorMsg(null);
@@ -286,7 +282,7 @@ function App() {
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        throw new Error(extractError(data, 'Ошибка сохранения анкеты'));
+        throw new Error(parseServerErrors(data, 'Ошибка сохранения профиля'));
       }
 
       if (data.profile) {
@@ -309,9 +305,9 @@ function App() {
       }
 
       setEditActive(false);
-      setOkMsg('Анкета участника успешно сохранена!');
+      setOkMsg('Профиль сохранен!');
     } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : 'Ошибка обновления');
+      setErrorMsg(err instanceof Error ? err.message : 'Ошибка сохранения');
     } finally {
       setLoading(false);
     }
@@ -334,11 +330,11 @@ function App() {
         });
       }
     } catch {
-      // Игнорируем сетевые сбои при логауте
+      // Игнорируем ошибки сети при выходе
     } finally {
       clientLogout();
       setLoading(false);
-      setOkMsg('Вы вышли из учетной записи.');
+      setOkMsg('Вы вышли из системы.');
     }
   };
 
@@ -353,23 +349,23 @@ function App() {
 
   return (
     <div translate="no" className="notranslate">
-      <div className="top-bar">
-        AMBER BEAT • JWT INAI COL3 SECURED • WORLD TOUR 2026
+      <div className="top-emerald-strip">
+        EMERALD SOUND • JWT AUTHORIZATION • WORLD TOUR 2026
       </div>
 
-      <header className="nav-shell">
-        <div className="brand-badge">
-          <span>🎸 AMBER BEAT</span>
-          <span className="badge-pill">JWT System</span>
+      <header className="emerald-header">
+        <div className="brand-box">
+          <span>⚡ EMERALD SOUND</span>
+          <span className="brand-badge">JWT SECURED</span>
         </div>
 
-        <div className="auth-nav-actions">
+        <div className="header-user-actions">
           {isLogged ? (
             <>
-              <span style={{ fontSize: '0.9rem', color: '#f59e0b', fontWeight: 700 }}>
-                {musician?.username || localStorage.getItem('jwt_user')}
+              <span className="user-display-pill">
+                Участник: {musician?.username || localStorage.getItem('jwt_user')}
               </span>
-              <button className="nav-btn nav-btn-danger" onClick={handleLogout}>
+              <button className="btn-emerald btn-emerald-danger" onClick={handleLogout}>
                 Выйти
               </button>
             </>
@@ -377,14 +373,14 @@ function App() {
             <>
               <button
                 type="button"
-                className={`nav-btn ${tab === 'login' ? 'nav-btn-active' : ''}`}
+                className={`btn-emerald ${tab === 'login' ? 'btn-emerald-active' : ''}`}
                 onClick={() => { setTab('login'); setErrorMsg(null); }}
               >
                 Вход
               </button>
               <button
                 type="button"
-                className={`nav-btn ${tab === 'register' ? 'nav-btn-active' : ''}`}
+                className={`btn-emerald ${tab === 'register' ? 'btn-emerald-active' : ''}`}
                 onClick={() => { setTab('register'); setErrorMsg(null); }}
               >
                 Регистрация
@@ -394,19 +390,19 @@ function App() {
         </div>
       </header>
 
-      <main className="page-grid">
+      <main className="emerald-workspace">
         {/* ЛЕВАЯ КОЛОНКА */}
-        <aside className="card-frame">
-          {errorMsg && <div className="status-banner status-banner-err">{errorMsg}</div>}
-          {okMsg && <div className="status-banner status-banner-ok">{okMsg}</div>}
+        <aside className="emerald-panel">
+          {errorMsg && <div className="alert-card alert-card-err">{errorMsg}</div>}
+          {okMsg && <div className="alert-card alert-card-ok">{okMsg}</div>}
 
           {!isLogged ? (
             tab === 'login' ? (
               <form onSubmit={handleLogin}>
-                <div className="card-head">
+                <div className="panel-header-title">
                   <span>Вход в систему</span>
                 </div>
-                <div className="form-row">
+                <div className="input-group">
                   <label>Логин (Username)</label>
                   <input
                     type="text"
@@ -416,7 +412,7 @@ function App() {
                     required
                   />
                 </div>
-                <div className="form-row">
+                <div className="input-group">
                   <label>Пароль</label>
                   <input
                     type="password"
@@ -426,17 +422,17 @@ function App() {
                     required
                   />
                 </div>
-                <button type="submit" className="submit-btn" disabled={loading}>
-                  {loading ? 'Проверка...' : 'Войти'}
+                <button type="submit" className="emerald-submit" disabled={loading}>
+                  {loading ? 'Проверка...' : 'Войти в аккаунт'}
                 </button>
               </form>
             ) : (
               <form onSubmit={handleRegister}>
-                <div className="card-head">
+                <div className="panel-header-title">
                   <span>Регистрация участника</span>
                 </div>
-                <div className="form-row">
-                  <label>Логин (от 3-4 символов)</label>
+                <div className="input-group">
+                  <label>Логин (Username)</label>
                   <input
                     type="text"
                     placeholder="Придумайте логин"
@@ -445,16 +441,16 @@ function App() {
                     required
                   />
                 </div>
-                <div className="form-row">
+                <div className="input-group">
                   <label>Email</label>
                   <input
                     type="email"
-                    placeholder="band@example.com"
+                    placeholder="user@example.com"
                     value={emailField}
                     onChange={(e) => setEmailField(e.target.value)}
                   />
                 </div>
-                <div className="form-row">
+                <div className="input-group">
                   <label>Пароль</label>
                   <input
                     type="password"
@@ -464,55 +460,55 @@ function App() {
                     required
                   />
                 </div>
-                <button type="submit" className="submit-btn" disabled={loading}>
+                <button type="submit" className="emerald-submit" disabled={loading}>
                   {loading ? 'Создание...' : 'Зарегистрироваться'}
                 </button>
               </form>
             )
           ) : (
             <div>
-              <div className="card-head">
+              <div className="panel-header-title">
                 <span>Профиль музыканта</span>
-                <button className="nav-btn" onClick={loadProfileData} title="Обновить">
+                <button className="btn-emerald" onClick={loadProfileData} title="Обновить">
                   ↻
                 </button>
               </div>
 
               {!editActive ? (
                 <div>
-                  <div className="profile-meta-card">
-                    <div className="meta-item">
-                      <span className="meta-label">ID участника:</span>
-                      <span className="meta-val">#{musician?.id ?? '—'}</span>
+                  <div className="profile-spec-card">
+                    <div className="profile-line">
+                      <span className="profile-label">ID:</span>
+                      <span className="profile-val">#{musician?.id ?? '—'}</span>
                     </div>
-                    <div className="meta-item">
-                      <span className="meta-label">Логин:</span>
-                      <span className="meta-val">{musician?.username || localStorage.getItem('jwt_user')}</span>
+                    <div className="profile-line">
+                      <span className="profile-label">Логин:</span>
+                      <span className="profile-val">{musician?.username || localStorage.getItem('jwt_user')}</span>
                     </div>
-                    <div className="meta-item">
-                      <span className="meta-label">Имя:</span>
-                      <span className="meta-val">{musician?.profile?.first_name || 'Не заполнено'}</span>
+                    <div className="profile-line">
+                      <span className="profile-label">Имя:</span>
+                      <span className="profile-val">{musician?.profile?.first_name || 'Не заполнено'}</span>
                     </div>
-                    <div className="meta-item">
-                      <span className="meta-label">Роль в группе:</span>
-                      <span className="meta-val">
+                    <div className="profile-line">
+                      <span className="profile-label">Специализация:</span>
+                      <span className="profile-val">
                         {musician?.profile?.specialization_display ||
                           musician?.profile?.specialization ||
                           'Другое'}
                       </span>
                     </div>
-                    <div className="meta-item">
-                      <span className="meta-label">Ставка за сет:</span>
-                      <span className="meta-val">${musician?.profile?.fee ?? '0.00'}</span>
+                    <div className="profile-line">
+                      <span className="profile-label">Ставка:</span>
+                      <span className="profile-val">${musician?.profile?.fee ?? '0.00'}</span>
                     </div>
-                    <div className="meta-bio">
+                    <div className="profile-bio-box">
                       <strong>О себе:</strong>{' '}
                       {musician?.profile?.bio || 'Данные пока не заполнены.'}
                     </div>
                   </div>
 
                   <button
-                    className="submit-btn"
+                    className="emerald-submit"
                     onClick={() => setEditActive(true)}
                   >
                     ✏️ Редактировать профиль
@@ -520,7 +516,7 @@ function App() {
                 </div>
               ) : (
                 <form onSubmit={handleProfileUpdate}>
-                  <div className="form-row">
+                  <div className="input-group">
                     <label>Имя</label>
                     <input
                       type="text"
@@ -530,21 +526,21 @@ function App() {
                     />
                   </div>
 
-                  <div className="form-row">
+                  <div className="input-group">
                     <label>Специализация</label>
                     <select
                       value={specValue}
                       onChange={(e) => setSpecValue(e.target.value)}
                     >
                       {specList.map((s) => (
-                        <option key={s.value} value={s.value} style={{ background: '#08090d', color: '#fff' }}>
+                        <option key={s.value} value={s.value} style={{ background: '#070d0d', color: '#fff' }}>
                           {s.label}
                         </option>
                       ))}
                     </select>
                   </div>
 
-                  <div className="form-row">
+                  <div className="input-group">
                     <label>Гонорар ($)</label>
                     <input
                       type="number"
@@ -554,7 +550,7 @@ function App() {
                     />
                   </div>
 
-                  <div className="form-row">
+                  <div className="input-group">
                     <label>Биография / О себе</label>
                     <textarea
                       rows={3}
@@ -565,12 +561,12 @@ function App() {
                   </div>
 
                   <div style={{ display: 'flex', gap: '10px' }}>
-                    <button type="submit" className="submit-btn" style={{ flex: 1 }}>
+                    <button type="submit" className="emerald-submit" style={{ flex: 1 }}>
                       Сохранить
                     </button>
                     <button
                       type="button"
-                      className="nav-btn"
+                      className="btn-emerald"
                       onClick={() => setEditActive(false)}
                       style={{ padding: '12px' }}
                     >
@@ -585,39 +581,39 @@ function App() {
 
         {/* ПРАВАЯ КОЛОНКА */}
         <section>
-          <div className="promo-banner">
-            <h1>AMBER BEAT COLLECTIVE</h1>
-            <p>Официальный портал группы • Интеграция JWT</p>
+          <div className="emerald-hero">
+            <h1>EMERALD SOUND BAND</h1>
+            <p>Официальный портал группы • Защищено JWT</p>
           </div>
 
-          <div className="card-frame" style={{ marginBottom: '24px' }}>
-            <div className="card-head">
-              <span>Дискография и релизы</span>
+          <div className="emerald-panel" style={{ marginBottom: '24px' }}>
+            <div className="panel-header-title">
+              <span>Дискография группы</span>
             </div>
-            <div className="album-grid">
-              <div className="album-item">
-                <span className="album-tag">LP • 2026</span>
-                <h3>Amber Horizon</h3>
+            <div className="releases-grid">
+              <div className="release-card">
+                <span className="release-badge">LP • 2026</span>
+                <h3>Emerald Pulse</h3>
                 <p>Аналоговый инди-рок, сведенный в студии Бишкека.</p>
               </div>
-              <div className="album-item">
-                <span className="album-tag">EP • 2025</span>
+              <div className="release-card">
+                <span className="release-badge">EP • 2025</span>
                 <h3>Highland Drive</h3>
                 <p>Акустические треки, записанные в ущельях Тянь-Шаня.</p>
               </div>
-              <div className="album-item">
-                <span className="album-tag">LIVE • 2024</span>
+              <div className="release-card">
+                <span className="release-badge">LIVE • 2024</span>
                 <h3>Zepp Tokyo Riot</h3>
-                <p>Живой концерт перед 10 000 слушателей.</p>
+                <p>Живой концерт перед 10 000 зрителей.</p>
               </div>
             </div>
           </div>
 
-          <div className="card-frame">
-            <div className="card-head">
+          <div className="emerald-panel">
+            <div className="panel-header-title">
               <span>График тура</span>
             </div>
-            <table className="concert-table">
+            <table className="schedule-table">
               <thead>
                 <tr>
                   <th>Дата</th>
@@ -631,19 +627,19 @@ function App() {
                   <td>14 НОЯ</td>
                   <td>Бишкек, KG</td>
                   <td>Bishkek Arena</td>
-                  <td><span style={{ color: '#f59e0b', fontWeight: 700 }}>Билеты в кассах</span></td>
+                  <td><span style={{ color: '#10b981', fontWeight: 700 }}>В продаже</span></td>
                 </tr>
                 <tr>
                   <td>20 НОЯ</td>
                   <td>Ош, KG</td>
                   <td>Central Stadium</td>
-                  <td><span style={{ color: '#f59e0b', fontWeight: 700 }}>Мало билетов</span></td>
+                  <td><span style={{ color: '#f59e0b', fontWeight: 700 }}>Мало мест</span></td>
                 </tr>
                 <tr>
                   <td>28 НОЯ</td>
                   <td>Алматы, KZ</td>
                   <td>Halyk Arena</td>
-                  <td><span style={{ color: '#22c55e', fontWeight: 700 }}>В продаже</span></td>
+                  <td><span style={{ color: '#10b981', fontWeight: 700 }}>В продаже</span></td>
                 </tr>
                 <tr>
                   <td>09 ДЕК</td>
